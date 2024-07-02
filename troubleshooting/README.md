@@ -36,7 +36,13 @@ Inspecting the 22uF (marking "226 20K"), 10uF (marking "10u 25V"), and 1uF (mark
 
 The power supply filtering capacitors near the molex connector were also inspected but were found to be within spec.
 
-Solution: not found. on-going. Capacitor replacement in-progress.
+Swapping the 20949 control board for a 20938 board indicated the spindle motor and hall sensors were functioning correctly.
+
+Pulling the EPROM IC from the board indicated that the problem did not originate with the MCU. 
+
+Replacing the failed capacitors did not solve the problem.
+
+Solution: not found. on-going.
 
 
 
