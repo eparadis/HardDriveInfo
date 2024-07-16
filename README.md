@@ -30,6 +30,71 @@ The control boards are typically held to the drive by three screws. Two of the s
 
 Early ST-225 boards have an 18-pin header going to the read/write heads, but the flex cable has a 16-pin connector. It should be plugged in offset to the pin 1 end of the header, allowing pins 17 and 18 on the header to hang outside the connector.
 
+## Platter Layout
+
+### ST-225
+
+For a stepper-motor hard drive, the motor phase is rather important because the rotor will "clock" to the phase you drive it with. The firmware uses this while searching for the index tracks so it can jump 8 tracks at a time, since it knows the inner index track is aligned to phase 5 and the outer to phase 7.
+
+The "Track" column indicates the track as visible to the user (the controller card in the PC). From this layout, you can see that the data area contains 615 total tracks. The landing zone is specified at track 670 which is safely outside the data area and away from the inner index marker track.
+
+The "Firmware Track" column is offset by 2 because this is how the drive's firmware numbers them; it limits the MFM controller from track 2 to track 672. This implies that there is no protection against the controller overwriting the inner index track -- you must enter the drive parameters in the BIOS correctly! The outer index track is inaccessible during normal operation.
+
+| Track | Firmware Track | Description          | Motor Phase |
+|-------|----------------|----------------------|-------------|
+|    -1 |              1 | Index marker track   | 7 |
+|     0 |              2 | Outermost data track | 6 |
+|   ... |            ... | Data                 | ... |
+|   614 |            616 | Innermost data track | 0 |
+|   615 |            617 | DC Erased            | 7 |
+|   616 |            618 | DC Erased            | 6 |
+|   617 |            619 | Index marker track   | 5 |
+|   618 |            620 | DC Erased            | 4 |
+|   ... |            621 | ...                  | 3 |
+|   670 |            672 | Landing zone         | 0 |
+|  ~694 |           ~696 | Inner hard stop      | - |
+
+*Note: Motor phase count is 0-7 since the motor is half-stepped.*
+
+The index marker track contains the following repeating information:
+
+| 0 - 4ms        | 4 - 16.67ms |
+|----------------|-------------|
+| 1.75MHz DC=17% | 5MHz DC=50% |
+
+When the MCU PA7 is set as an input (logic 1), the drive will hold the hall-effect signal divider in reset as long as the 1.75MHz marker signal is present.
+
+The index marker tracks are present only on head 0; none of the other surfaces contain this information.
+
+### ST-251
+
+| Track | Description        | Motor Phase |
+|-------|--------------------|-------------|
+|    -4 | (End of outer crash stop) |   |
+|    -3 | DC Erased                 | 7 |
+|    -2 | Index marker track        | 8 |
+|    -1 | DC Erased                 | 9 |
+|     0 | Outermost data track      | 0 |
+|   ... | Data                      |   |
+|   819 | Innermost data track      | 9 |
+|   820 | DC Erased                 | 0 |
+|   821 | DC Erased                 | 1 |
+|   822 | DC Erased                 | 2 |
+|   823 | 1.75MHz                   | 3 |
+|   824 | DC Erased                 | 4 |
+|   825 | DC Erased                 | 5 |
+|   826 | 1.75MHz                   | 6 |
+|   827 | DC erased on odd tracks to inner crash stop. | |
+|   ... | After track 827, 1.75MHz on all tracks with motor phases 0 and 6 to inner crash stop. All other even tracks DC erased. | |
+|   910 | Landing zone              | |
+
+Index marker track:
+
+| 0 - 4ms        | 4 - 16.67ms |
+|----------------|-------------|
+| 2F             | 1.75MHz     |
+
+
 ## Driver boards
 
 ### 20301 "225 CONTROL", 20527
@@ -40,6 +105,7 @@ have been integrated in LSI chips.
 The PCB schematic and layout for 20301 are available, see st225/20301.
 
 The PCB schematic and layout for 20527 are available, see st225/20527.
+
 
 There are several variations of the 20301 board: 
 
@@ -132,7 +198,24 @@ The electrical changes here are fairly minor. The layout has some moderate chang
 
 ## Firmware
 
+### ST-251
+
 The firmware from the 20629 board has been dumped. The label is marked "ST 251 / LSIL18". The firmware has been fed through Ghidra and a good chunk of it has been commented and labeled. See [the repository](st251/firmware/ST251_commented.txt). Some parts of it are not understood.
+
+### ST-225
+
+The firmware from the ST-225's ROM microcontroller, 80007-001, has been dumped, disassembled, and commented. See st225/firmware.
+
+Fun facts:
+
+* Some (but not all) ST-225 logic boards have an array of resistors and two 7445 chips. These are connected to the stepper motor and are used to adjust
+the voltage on individual windings to subtly shift the position of the stepper motor (microstepping). This is used in recovery mode.
+* Early ST-225 logic boards have a latch and EPROM chip. These are not populated. They are not used to store firmware. The microcontroller's internal
+ROM contains code that uses this external EPROM as a lookup table of 1 byte per track. Each contains two 4-bit values used to microstep the head position
+(two values because the value can be different if you are stepping inwards to the track or stepping outwards to the track). This may have been used to provide
+a custom "defect map" for a single-platter drive, using the stepper to avoid bad areas on the platter.
+* An undocumented "pause mode" appears in the firmware. By pulling PA4 low (pin 34 of the MCU), it enters a state where it allows all GPIO pins to go high/float. Presumable this was useful for debugging.
+
 
 ## Chips
 
@@ -262,7 +345,7 @@ The 10188-501 comes in an SOIC package while the 10014-002 comes in a DIP packag
 | 16  | HDSEL2# | Input     | Head select bit 2 input. Active low.             |
 | 15  | HDSEL4# | Input     | Head select bit 3 input. Active low.             |
 | 12  | WRT\_FAULT\_IN| Input | Goes high if there is a write fault, which disables all center tap outputs. |
-| 20  | VHS     | Input     | Head center tap resistor divider supply. Provides termination voltage. |
+| 20  | VHS     | Output    | Voltage Head Safe. Generates an average of the center tap voltages from an internal resistor network. |
 | 1   | VCTAP   | Input     | Head center tap active voltage. The selected head's center tap gets driven to this voltage - 0.25V. |
 | 9   | HDC1    | Output    | Head 1 center tap output. |
 | 8   | HDC2    | Output    | Head 2 center tap output. |
@@ -283,19 +366,19 @@ The center tap driver chip drives the center tap of each head coil depending on 
 
 | WRT\_FAULT\_IN  | HDSEL4# | HDSEL2# | HDSEL1# | HDC1 | HDC2 | HDC3 | HDC4 | HDC5 | HDC6 |
 |-----------------|---------|---------|---------|------|------|------|------|------|------|
-|               0 |       1 |       1 |       1 | VCTAP|   VT |   VT |   VT |   VT |   VT |
-|               0 |       1 |       1 |       0 |   VT | VCTAP|   VT |   VT |   VT |   VT |
-|               0 |       1 |       0 |       1 |   VT |   VT | VCTAP|   VT |   VT |   VT |
-|               0 |       1 |       0 |       0 |   VT |   VT |   VT | VCTAP|   VT |   VT |
-|               0 |       0 |       1 |       1 |   VT |   VT |   VT |   VT | VCTAP|   VT |
-|               0 |       0 |       1 |       0 |   VT |   VT |   VT |   VT |   VT | VCTAP|
-|               1 |       x |       x |       x |   VT |   VT |   VT |   VT |   VT |   VT |
+|               0 |       1 |       1 |       1 | VCTAP|    z |    z |    z |    z |    z |
+|               0 |       1 |       1 |       0 |    z | VCTAP|    z |    z |    z |    z |
+|               0 |       1 |       0 |       1 |    z |    z | VCTAP|    z |    z |    z |
+|               0 |       1 |       0 |       0 |    z |    z |    z | VCTAP|    z |    z |
+|               0 |       0 |       1 |       1 |    z |    z |    z |    z | VCTAP|    z |
+|               0 |       0 |       1 |       0 |    z |    z |    z |    z |    z | VCTAP|
+|               1 |       x |       x |       x |    z |    z |    z |    z |    z |    z |
 
-(VT is 0.86 * VHS. VCTAP in the table is actually VCTAP - 0.25V.)
+(VCTAP in the table is actually VCTAP - 0.25V.)
 
 Unselected heads are driven to VHS * 0.86. There may be an internal voltage divider but this is buffered with a low (0.3 ohm) impedance driver before being switched onto the head output.
 
-The voltage provided to VCTAP must be higher than the voltage provided to VHS.
+VHS (Voltage Head Safe) uses a resistor network to aggregate the voltages on all the head center tap connections. The adjacent read/write channel LSI monitors this voltage with comparators. If the voltage is too high, that indicates that multiple heads have been selected for writing, which triggers a write fault. A voltage that is too low indicates that no heads are selected for writing, which also triggers a write fault.
 
 The chip also includes a very simple two-transistor driver for the write current selection. This is used for up to 4-zone recording.
 
@@ -370,8 +453,8 @@ This device incorporates the read channel and the write amplifier circuitry.
 | 23  | WRT\_GATE# | Input | Active low write enable. Connect to MFM bus. |
 | 24  | WRT\_FAULT# | Output | Active low write fault indicator. Asserted if a fault occurs during a write, may deassert during reads. |
 | 25  | DC\_UNSAFE# | Output | Active low DC unsafe indicator. Asserts if 5V or 12V rail fall below minimum thresholds. |
-| 26  | VHS   |           | Head selected monitoring connection to the head steering matrix. |
-| 27  | VCTAP | Output    | Head center tap driver. Driven to 12V during a write and about 5.3V during a read. |
+| 26  | VHS   | Input     | Voltage Head Safe. Monitoring connection to the head steering matrix. |
+| 27  | VCTAP | Output    | Voltage Center Tap. Head center tap driver; driven to 12V during a write and about 5.3V during a read. |
 | 1   | DI+   | Input     | Preamp signal input (positive). |
 | 2   | DI-   | Input     | Preamp signal input (negative). |
 | 3   | -GAIN |           | Preamp gain pin 1. |
@@ -411,8 +494,8 @@ The 10206-501 comes in the 44-pin PLCC package while the 10206-002 comes in the 
 | 37       | 35      | WRT\_GATE# | Input | Active low write enable. Connect to MFM bus. |
 | 39       | 36      | WRT\_FAULT# | Output | Active low write fault indicator. Asserted if a fault occurs during a write, may deassert during reads. |
 | 40       | 37      | DC\_UNSAFE# | Output | Active low DC unsafe indicator. Asserts if 5V or 12V rail fall below minimum thresholds. |
-| 42       | 38      | VHS   |           | Head selected monitoring connection to the head steering matrix. |
-| 43       | 39      | VCTAP | Output    | Head center tap driver. Driven to 12V during a write and about 5.3V during a read. |
+| 42       | 38      | VHS   | Input     | Voltage Head Safe. Monitoring connection to the head steering matrix. |
+| 43       | 39      | VCTAP | Output    | Voltage Center Tap. Head center tap driver; driven to 12V during a write and about 5.3V during a read. |
 | 1        | 1       | DI+   | Input     | Preamp signal input (positive). |
 | 2        | 2       | DI-   | Input     | Preamp signal input (negative). |
 | 3        | 3       | -GAIN |           | Preamp gain pin 1. |
@@ -438,9 +521,9 @@ The 10206-501 comes in the 44-pin PLCC package while the 10206-002 comes in the 
 
 The write drive circuit takes differential digital data from the WDATA\_IN pins and outputs it (with a current set by the WRITE\_CUR pin) on the WDO pins during write mode. Write mode is entered when DC\_UNSAFE# is deasserted, WRT\_OK is asserted, and WRT\_GATE# is asserted (DRV\_SEL# is ignored).
 
-VHS senses when the voltage in the heads exceeds a limit of about 3.5V, and when this happens, WRT\_FAULT# asserts.
+Voltage Head Safe (VHS) senses when the average center tap voltage of the heads exceeds a limit of about 3.5V, and when this happens, WRT\_FAULT# asserts, because this indicates that multiple heads have been selected. If the voltage is below some minimum threshold (indicated that no heads are selected) it may also trigger a write fault.
 
-VCTAP is driven to 12V in write mode and otherwise goes to 5.3V. It is controlled by WRT\_GATE# alone, for some reason.
+VCTAP is driven to 12V in write mode and otherwise goes to 5.3V (for reads). It is controlled by WRT\_GATE# alone, for some reason. This drives the center tap voltage of the currently-selected head.
 
 The power supply monitor asserts DC\_UNSAFE# when the 5V rail falls below 4.2V (rising threshold is 4.23) or when the 12V rail falls below 9.54V (rising threshold is 9.67V).
 
@@ -477,6 +560,60 @@ Typical values (on the ST-251) are:
 * TMG2: 47ns
 * TMG3: 69ns - total time for comparator C2 is 116ns
 * TMG4: 42ns - output data pulse width
+
+### 11665-001 4-Phase Stepper Motor Driver
+
+This device is used to drive 4-phase stepper motors.
+
+**Pin Description**
+
+| Pin | Name  | Direction | Description                                     |
+|-----|-------|-----------|-------------------------------------------------|
+| 1, 16 | 12V | Power In  | 12V power rail. |
+| 4, 5, 12, 13 | Gnd | Ground | Connect to ground. Also used as the heat sink. |
+| 2 | PH0 | Output | Phase 0 wire. |
+| 3 | PH1 | Output | Phase 1 wire. |
+| 14 | PH2 | Output | Phase 2 wire. |
+| 15 | PH3 | Output | Phase 3 wire. |
+| 6 | SET  |       | Current setpoint (?) |
+| 7 | STEP | Input | Rising-edge sensitive step input. |
+| 8 | MODE | Input | Pull high for alternate half-step waveform. Not used in full step. |
+| 9 | 1/2 STEP | Input | Pull high for half step mode, low for full step mode. |
+| 10 | DIR | Input | Direction input. |
+
+**Functional Description**
+
+This IC includes build-in power driver transistors as well as a step table and counter for 4-phase stepper motors.
+
+Std: Standard step mode (1/2STEP=0, MODE=x, DIR=0)
+
+Half: Half step mode (1/2STEP=1, MODE=0, DIR=0)
+
+AltHalf: Alternate half step mode (1/2STEP=1, MODE=1, DIR=0)
+
+When DIR = 1, the phase is decremented and goes in reverse order (right to left) on the table.
+
+
+| Std | 0 | . | 1 | . | 2 | . | 3 | . |
+|-----|---|---|---|---|---|---|---|---|
+| PH0 | L |   | H |   | H |   | L |   |
+| PH1 | H |   | L |   | L |   | H |   |
+| PH2 | L |   | L |   | H |   | H |   |
+| PH3 | H |   | H |   | L |   | L |   |
+| **Half** | **0** | **1** | **2** | **3** | **4** | **5** | **6** | **7** |
+| PH0 | L | Z | H | H | H | Z | L | L |
+| PH1 | H | Z | L | L | L | Z | H | H |
+| PH2 | L | L | L | Z | H | H | H | Z |
+| PH3 | H | H | H | Z | L | L | L | Z |
+| **AltHalf** | **0** | **1** | **2** | **3** | **4** | **5** | **6** | **7** |
+| PH0 | L | H | H | H | H | H | L | L |
+| PH1 | H | H | L | L | L | H | H | H |
+| PH2 | L | L | L | H | H | H | H | H |
+| PH3 | H | H | H | H | L | L | L | H |
+
+(Z means the phase is floating, not driven high or low.)
+
+The SET pin must be connected with a resistor (around 50K) to ground to bias up the chip. If it is pulled high or left floating, then the chip will not drive any of the outputs and the internal phase counter will be reset to phase 0.
 
 
 ### 11782-501 "STEP SEQR"
@@ -715,8 +852,42 @@ The ring detector is a window comparator that examines one of five possible diff
 
 The window threshold is controlled by the voltage applied to the RING\_SET pin. It seems to be a percentage of that voltage. The output of the window comparator goes to a digitally-timed counter state machine which is incompletely understood but clocked by the SYS\_CLK input. The output of this is passed along to the RING\_DET output (which must be pulled up externally). In typical operation, this pin toggles on every edge of the ringing signal generated by the back EMF of the stepper motor winding.
 
+### 11695-002 "SPEED CONTROL"
 
-# License
+This custom LSI chip controls and regulates the speed of the spindle motor.
+
+**Pin Description**
+
+| Pin | Name  | Direction | Description                                     |
+|-----|-------|-----------|-------------------------------------------------|
+| 8   | +12V  | Power     | 12V power input. |
+| 4   | GND   | Ground    | Connect to ground. |
+| 1   | FREF  | Input     | 2MHz input frequency reference. |
+| 2   | H-OUT | Output    |
+| 3   | H-IN  | Input     | Input from hall effect sensor. |
+| 5   | SENSE | Input     | Analog current sense input. |
+| 6   | COILA | Output    | Controls an external transistor that drives a motor coil. |
+| 7   | COILB | Output    | Controls an external transistor that drives a motor coil. |
+
+
+**Function Description**
+
+This device generates commutated coil output control signals based on the hall effect sensor input. It regulates the speed by measuring the hall effect input against the 2MHz input reference clock frequency. The device assumes that there are two hall pulses per revolution and that the motor is to be regulated to 3600 RPM, or 120 hall pulses per second.
+
+The device also monitors the number of reference clock pulses, and if hall effect pulses aren't received for a certain number of cycles, both COILA and COILB outputs are disabled (locked rotor protection).
+
+The sense input is externally tied to a current sense resistor in series with the ground path of the driver transistors. The chip cuts off the COILA/COILB signal early when the current reaches a set limit.
+
+When the 12V power supply falls below a threshold, the motor coil back EMF causes the COILA and COILB inputs to turn on simultaneously, braking the motor.
+
+## More Information
+
+A large amount of Seagate drive information can be found on [Bitsavers](https://bitsavers.org/pdf/seagate/).
+
+Some operational clues for the ST-225 are available in the [ST-225 OEM Manual](https://www.minuszerodegrees.net/manuals/Seagate/Seagate%20ST225%20-%20OEM%20Manual%20-%20Oct85.pdf).
+
+
+## License
 This work is licensed under a Creative Commons Attribution-ShareAlike 4.0
 International License. See [https://creativecommons.org/licenses/by-sa/4.0/](https://creativecommons.org/licenses/by-sa/4.0/).
 
