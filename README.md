@@ -1,11 +1,13 @@
 # Hard Drive Repair Information
 
-This site contains extensive information about the control boards used in some 1980s hard drives made by Seagate.
+This site contains extensive information about the control boards used in some 1980s and early 1990s hard drives made by Seagate.
 
 Full schematics and even KiCad layouts are available for a number of different boards. My hope is that this will
 
 1. Aid anyone attempting to repair one of these drives. Loading the schematic and layout in KiCad will let you click on a part on the layout and highlight it in schematic.
 2. Inform anyone studying the history of small hard drives. For example, this information shows how Seagate integrated various functions into custom chips.
+
+Additionally, the internal service cylinder sector format and track layout has been determined for several ST-1xxN and ST-1xxA drives. This has allowed recovery of the on-platter firmware for each of these. A preliminary pass at disassembly has been attempted.
 
 Below is a table linking specific drive models with the part numbers of their matching control boards.
 
